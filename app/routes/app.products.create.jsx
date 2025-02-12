@@ -1,116 +1,151 @@
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
-const CREATE_PRODUCT_MUTATION = `
-  mutation ProductCreate($input: ProductInput!) {
-    productCreate(input: $input) {
-      product {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-const PRODUCT_SET_MUTATION = `
-  mutation ProductSet($productId: ID!, $media: [CreateMediaInput!]!) {
-    productSet(id: $productId, media: $media) {
-      product {
-        id
-      }
-      mediaUserErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-const VARIANT_BULK_CREATE_MUTATION = `
-  mutation ProductVariantsBulkCreate($productId: ID!, $variants: [ProductVariantInput!]!) {
-    productVariantsBulkCreate(productId: $productId, variants: $variants) {
-      productVariants {
-        id
-        price
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-export async function action({ request }) {
+export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  const formData = await request.formData();
-  const title = formData.get("title");
-  const description = formData.get("description");
-  const vendor = formData.get("vendor");
-  const imageUrl = formData.get("image");
-  const price = formData.get("price");
+  try {
+    const formData = await request.formData();
+    const title = formData.get("title");
+    const descriptionHtml = formData.get("description");
+    const vendor = formData.get("vendor");
+    const imageSrc = formData.get("image");
+    const price = formData.get("price");
 
-  console.log("Executing GraphQL request...");
-
-  const productResponse = await admin.graphql(CREATE_PRODUCT_MUTATION, {
-    variables: {
-      input: {
-        title,
-        descriptionHtml: description,
-        vendor,
-        status: "ACTIVE",
-      },
-    },
-  });
-
-
-  if (!productResponse || !productResponse.productCreate) {
-    return json({ error: productResponse.errors, response: productResponse }, { status: 500 });
-  }
-
-  const { productCreate } = productResponse;
-
-  if (productCreate.userErrors?.length) {
-    return json({ error: productCreate.userErrors }, { status: 400 });
-  }
-
-  const productId = productCreate.product?.id;
-
-  if (!productId) {
-    return json({ error: "Product creation failed, no product ID returned" }, { status: 500 });
-  }
-
-
-  if (imageUrl) {
-    console.log("Uploading image...");
-
-    const imageResponse = await admin.graphql(PRODUCT_SET_MUTATION, {
-      variables: { productId, media: [{ alt: title, mediaContentType: "IMAGE", url: imageUrl }] },
-    });
-
-    console.log("Image upload response:", JSON.stringify(imageResponse, null, 2));
-
-    if (imageResponse.mediaUserErrors?.length) {
-      return json({ error: imageResponse.mediaUserErrors }, { status: 400 });
+    const parsedPrice = parseFloat(price);
+    if (isNaN(parsedPrice)) {
+      return json({ errors: [{ field: "price", message: "Invalid price value" }] }, { status: 400 });
     }
+
+    const productResponse = await admin.graphql(
+      `#graphql
+      mutation productCreate($product: ProductCreateInput!) {
+          productCreate(product: $product) {
+              product {
+                  id
+                  title
+                  descriptionHtml
+                  vendor
+              }
+              userErrors {
+                  field
+                  message
+              }
+          }
+      }`,
+      {
+        variables: {
+          product: {
+            title,
+            descriptionHtml,
+            vendor,
+            status: "ACTIVE",
+            productType: "General",
+            tags: ["New"],
+          },
+        },
+      }
+    );
+
+    if (!productResponse?.productCreate?.product) {
+      throw new Error("Invalid response from Shopify API");
+    }
+
+    if (productResponse.productCreate.userErrors.length) {
+      return json({ errors: productResponse.productCreate.userErrors }, { status: 400 });
+    }
+
+    const productId = productResponse.productCreate.product.id;
+    console.log("Product Created: ", productId);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const variantResponse = await admin.graphql(
+      `#graphql
+      mutation productVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkCreate(productId: $productId, variants: $variants) {
+              productVariants {
+                  id
+                  price
+              }
+              userErrors {
+                  field
+                  message
+              }
+          }
+      }`,
+      {
+        variables: {
+          productId,
+          variants: [
+            {
+              price: parsedPrice.toFixed(2),
+            },
+          ],
+        },
+      }
+    );
+
+    if (!variantResponse?.productVariantsBulkCreate?.productVariants) {
+      throw new Error("Invalid response from Shopify API for variant update");
+    }
+
+    if (variantResponse.productVariantsBulkCreate.userErrors.length) {
+      return json({ errors: variantResponse.productVariantsBulkCreate.userErrors }, { status: 400 });
+    }
+
+    console.log("Variants Created");
+
+    if (imageSrc) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const imageResponse = await admin.graphql(
+        `#graphql
+        mutation productSet($id: ID!, $media: [CreateMediaInput!]!) {
+            productSet(id: $id, media: $media) {
+                product {
+                    id
+                    featuredMedia {
+                        preview {
+                            image {
+                                url
+                            }
+                        }
+                    }
+                }
+                mediaUserErrors {
+                    field
+                    message
+                }
+            }
+        }`,
+        {
+          variables: {
+            id: productId,
+            media: [
+              {
+                url: imageSrc,
+                alt: title,
+                mediaContentType: "IMAGE",
+              },
+            ],
+          },
+        }
+      );
+
+      if (!imageResponse?.productSet?.product) {
+        throw new Error("Invalid response from Shopify API for image upload");
+      }
+
+      if (imageResponse.productSet.mediaUserErrors.length) {
+        return json({ errors: imageResponse.productSet.mediaUserErrors }, { status: 400 });
+      }
+    }
+
+    console.log("Product fully created");
+    return json({ success: true, productId });
+  } catch (error) {
+    console.error("Error:", error);
+    return json({ errors: [{ message: error.message }] }, { status: 500 });
   }
-
-
-  const variantResponse = await admin.graphql(VARIANT_BULK_CREATE_MUTATION, {
-    variables: { productId, variants: [{ price }] },
-  });
-
-  console.log("Variant creation response:", JSON.stringify(variantResponse, null, 2));
-
-  if (variantResponse.userErrors?.length) {
-    return json({ error: variantResponse.userErrors }, { status: 400 });
-  }
-
-  console.log("Product fully created!");
-
-  return json({ success: true, productId });
-}
+};

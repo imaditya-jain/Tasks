@@ -85,6 +85,52 @@ export const action = async ({ request }) => {
             return json({ errors: variantResponse.data.productVariantsBulkUpdate.userErrors }, { status: 400 });
         }
 
+        if (imageSrc) {
+            const imageResponse = await admin.graphql(
+                `#graphql
+        mutation productUpdate($input: ProductInput!, $media: [CreateMediaInput!]) {
+            productUpdate(input: $input, media: $media) {
+                product {
+                    id
+                    featuredMedia {
+                        preview {
+                            image {
+                                url
+                            }
+                        }
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }`,
+                {
+                    variables: {
+                        input: {
+                            id: productId,
+                        },
+                        media: [
+                            {
+                                originalSource: imageSrc,
+                                alt: title,
+                                mediaContentType: "IMAGE",
+                            },
+                        ],
+                    },
+                }
+            );
+
+            if (imageResponse.data?.productUpdate?.userErrors.length) {
+                return json({ errors: imageResponse.data.productUpdate.userErrors }, { status: 400 });
+            }
+        }
+
+
+
+
+
         return json({ success: true });
     } catch (error) {
         console.error("Unexpected error:", error);
