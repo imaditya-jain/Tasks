@@ -13,8 +13,10 @@ export const loader = async ({ request }) => {
             node {
               id
               title
+              descriptionHtml
               handle
               status
+              vendor
               images(first: 1) {
                 edges {
                   node {
@@ -51,7 +53,10 @@ const Collections = () => {
     const [active, setActive] = useState(false)
     const [editingProduct, setEditingProduct] = useState(null)
     const [title, setTitle] = useState("")
+    const [description, setDescription] = useState("")
+    const [imageSrc, setImageSrc] = useState("")
     const [price, setPrice] = useState('')
+    const [vendor, setVendor] = useState("")
     const [toastActive, setToastActive] = useState(false)
     const [isCreating, setISCreating] = useState(false)
 
@@ -68,6 +73,9 @@ const Collections = () => {
         setISCreating(false)
         setEditingProduct(product)
         setTitle(product?.title)
+        setDescription(product?.descriptionHtml || "")
+        setImageSrc(product?.images?.edges[0]?.node?.originalSrc || "")
+        setVendor(product?.vendor || "")
         setPrice(product?.variants?.edges[0]?.node?.price || '')
         setActive(true)
     }
@@ -83,6 +91,9 @@ const Collections = () => {
         setEditingProduct(null)
         setISCreating(true)
         setTitle('')
+        setDescription('')
+        setImageSrc('')
+        setVendor('')
         setPrice('')
         setActive(true)
     }
@@ -90,6 +101,9 @@ const Collections = () => {
     const handleSave = async () => {
         const formData = new FormData();
         formData.append("title", title);
+        formData.append("description", description);
+        formData.append("image", imageSrc);
+        formData.append("vendor", vendor);
         formData.append("price", price);
 
         if (!isCreating) {
@@ -113,10 +127,11 @@ const Collections = () => {
         }
     }, [fetcher])
 
-    const rows = products && products !== null && products !== undefined && products !== "" && Array.isArray(products) && products.length > 0 && products.reverse().map(({ node: product }) => [
+    const rows = products.map(({ node: product }) => [
         <Thumbnail source={product.images.edges[0]?.node.originalSrc || ""} alt={product.images.edges[0]?.node.altText || "Product Image"} />,
         product.title,
-        product.status,
+        <div dangerouslySetInnerHTML={{ __html: product.descriptionHtml.split(" ").slice(0, 5).join(" ") }} />,
+        product.vendor,
         product.variants.edges[0]?.node.price || "",
         <Button onClick={() => handleEdit(product)}>Edit</Button>,
         <Button destructive onClick={() => handleDelete(product.id)}>Delete</Button>,
@@ -140,7 +155,7 @@ const Collections = () => {
                                     </Text>
                                     <DataTable
                                         columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                                        headings={["Image", "Title", "Status", "Price", "Edit", "Delete"]}
+                                        headings={["Image", "Title", "Description", "Vendor", "Price", "Edit", "Delete"]}
                                         rows={rows}
                                     />
                                 </Card>
@@ -162,21 +177,18 @@ const Collections = () => {
                                     onAction: handleModalChange
                                 }
                             ]}
-
                         >
                             <Modal.Section>
                                 <FormLayout>
+                                    {imageSrc && <Thumbnail source={imageSrc} alt="Product Image" size="large" />}
                                     <TextField label="Title" value={title} onChange={(value) => setTitle(value)} />
+                                    <TextField label="Description" value={description} onChange={(value) => setDescription(value)} multiline />
+                                    <TextField label="Image URL" value={imageSrc} onChange={(value) => setImageSrc(value)} />
+                                    <TextField label="Vendor" value={vendor} onChange={(value) => setVendor(value)} />
                                     <TextField label="Price" value={price} onChange={(value) => setPrice(value)} />
                                 </FormLayout>
                             </Modal.Section>
                         </Modal>
-                        )
-                        {
-                            toastActive && (
-                                <Toast content="Product updated successfully." onDismiss={toggleToastActive} />
-                            )
-                        }
                     </Page>
                 </Frame>
             )

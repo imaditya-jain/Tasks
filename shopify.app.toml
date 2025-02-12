@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "07b07fd6a2b788abc9a281eaa5a64427"
-application_url = "https://winter-women-feelings-roger.trycloudflare.com"
+application_url = "https://puerto-howard-medication-recipients.trycloudflare.com"
 embedded = true
 name = "product-management"
 handle = "product-management-30"
@@ -27,9 +27,9 @@ scopes = "write_products"
 
 [auth]
 redirect_urls = [
-  "https://winter-women-feelings-roger.trycloudflare.com/auth/callback",
-  "https://winter-women-feelings-roger.trycloudflare.com/auth/shopify/callback",
-  "https://winter-women-feelings-roger.trycloudflare.com/api/auth/callback"
+  "https://puerto-howard-medication-recipients.trycloudflare.com/auth/callback",
+  "https://puerto-howard-medication-recipients.trycloudflare.com/auth/shopify/callback",
+  "https://puerto-howard-medication-recipients.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

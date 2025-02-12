@@ -1,145 +1,116 @@
-import { json } from "@remix-run/react";
+import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
-export const action = async ({ request }) => {
-    const { admin } = await authenticate.admin(request);
-    const formData = await request.formData();
-
-    const title = formData.get("title");
-    let price = formData.get("price");
-
-    try {
-        if (!title || !price) {
-            console.error("Validation Error: Title and price are required.");
-            return json({ errors: [{ message: "Title and price are required." }] }, { status: 400 });
-        }
-
-        const parsedPrice = parseFloat(price);
-        if (isNaN(parsedPrice) || parsedPrice <= 0) {
-            console.error("Invalid price value.");
-            return json({ errors: [{ message: "Price must be a valid number greater than 0." }] }, { status: 400 });
-        }
-
-        const productResponse = await admin.graphql(
-            `#graphql
-            mutation createProduct($input: ProductInput!) {
-                productCreate(input: $input) {
-                    product {
-                        id
-                        title
-                        variants(first: 1) {
-                            edges {
-                                node {
-                                    id
-                                }
-                            }
-                        }
-                    }
-                    userErrors {
-                        field
-                        message
-                    }
-                }
-            }`,
-            {
-                variables: {
-                    input: {
-                        title,
-                        status: "ACTIVE"
-                    },
-                },
-            }
-        );
-
-        const productData = await productResponse.json();
-        console.log("Product Response:", JSON.stringify(productData, null, 2));
-
-        if (!productData?.data?.productCreate?.product?.id) {
-            console.error("Product creation failed:", productData?.data?.productCreate?.userErrors);
-            return json({
-                errors: productData?.data?.productCreate?.userErrors || [{ message: "Failed to create product." }],
-            }, { status: 400 });
-        }
-
-        const productId = productData.data.productCreate.product.id;
-        const variantId = productData.data.productCreate.product.variants.edges[0]?.node?.id;
-
-        const variantResponse = await admin.graphql(
-            `#graphql
-            mutation updateProductVariant($input: ProductVariantInput!) {
-                productVariantUpdate(input: $input) {
-                    productVariant {
-                        id
-                        price
-                    }
-                    userErrors {
-                        field
-                        message
-                    }
-                }
-            }`,
-            {
-                variables: {
-                    input: {
-                        id: variantId,
-                        price: parsedPrice.toFixed(2),
-                        compareAtPrice: (parsedPrice + 10).toFixed(2)
-                    }
-                },
-            }
-        );
-
-        const variantData = await variantResponse.json();
-        console.log("Variant Update Response:", JSON.stringify(variantData, null, 2));
-
-        if (variantData?.data?.productVariantUpdate?.userErrors?.length > 0) {
-            console.error("Variant update failed:", variantData.data.productVariantUpdate.userErrors);
-            return json({
-                errors: variantData.data.productVariantUpdate.userErrors,
-            }, { status: 400 });
-        }
-
-        const publishResponse = await admin.graphql(
-            `#graphql
-            mutation publishProduct($input: ProductPublishInput!) {
-                productPublish(input: $input) {
-                    product {
-                        id
-                        publishedAt
-                    }
-                    userErrors {
-                        field
-                        message
-                    }
-                }
-            }`,
-            {
-                variables: {
-                    input: {
-                        id: productId,
-                    },
-                },
-            }
-        );
-
-        const publishData = await publishResponse.json();
-        console.log("Publish Response:", JSON.stringify(publishData, null, 2));
-
-        if (publishData?.data?.productPublish?.userErrors?.length > 0) {
-            console.error("Product publish failed:", publishData.data.productPublish.userErrors);
-            return json({
-                errors: publishData.data.productPublish.userErrors,
-            }, { status: 400 });
-        }
-
-        return json({
-            success: true,
-            productId,
-            message: "Product created and published successfully with price"
-        });
-
-    } catch (error) {
-        console.error("Unexpected error:", error);
-        return json({ errors: [{ message: error.message }] }, { status: 500 });
+const CREATE_PRODUCT_MUTATION = `
+  mutation ProductCreate($input: ProductInput!) {
+    productCreate(input: $input) {
+      product {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
     }
-};
+  }
+`;
+
+const PRODUCT_SET_MUTATION = `
+  mutation ProductSet($productId: ID!, $media: [CreateMediaInput!]!) {
+    productSet(id: $productId, media: $media) {
+      product {
+        id
+      }
+      mediaUserErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const VARIANT_BULK_CREATE_MUTATION = `
+  mutation ProductVariantsBulkCreate($productId: ID!, $variants: [ProductVariantInput!]!) {
+    productVariantsBulkCreate(productId: $productId, variants: $variants) {
+      productVariants {
+        id
+        price
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export async function action({ request }) {
+  const { admin } = await authenticate.admin(request);
+
+  const formData = await request.formData();
+  const title = formData.get("title");
+  const description = formData.get("description");
+  const vendor = formData.get("vendor");
+  const imageUrl = formData.get("image");
+  const price = formData.get("price");
+
+  console.log("Executing GraphQL request...");
+
+  const productResponse = await admin.graphql(CREATE_PRODUCT_MUTATION, {
+    variables: {
+      input: {
+        title,
+        descriptionHtml: description,
+        vendor,
+        status: "ACTIVE",
+      },
+    },
+  });
+
+
+  if (!productResponse || !productResponse.productCreate) {
+    return json({ error: productResponse.errors, response: productResponse }, { status: 500 });
+  }
+
+  const { productCreate } = productResponse;
+
+  if (productCreate.userErrors?.length) {
+    return json({ error: productCreate.userErrors }, { status: 400 });
+  }
+
+  const productId = productCreate.product?.id;
+
+  if (!productId) {
+    return json({ error: "Product creation failed, no product ID returned" }, { status: 500 });
+  }
+
+
+  if (imageUrl) {
+    console.log("Uploading image...");
+
+    const imageResponse = await admin.graphql(PRODUCT_SET_MUTATION, {
+      variables: { productId, media: [{ alt: title, mediaContentType: "IMAGE", url: imageUrl }] },
+    });
+
+    console.log("Image upload response:", JSON.stringify(imageResponse, null, 2));
+
+    if (imageResponse.mediaUserErrors?.length) {
+      return json({ error: imageResponse.mediaUserErrors }, { status: 400 });
+    }
+  }
+
+
+  const variantResponse = await admin.graphql(VARIANT_BULK_CREATE_MUTATION, {
+    variables: { productId, variants: [{ price }] },
+  });
+
+  console.log("Variant creation response:", JSON.stringify(variantResponse, null, 2));
+
+  if (variantResponse.userErrors?.length) {
+    return json({ error: variantResponse.userErrors }, { status: 400 });
+  }
+
+  console.log("Product fully created!");
+
+  return json({ success: true, productId });
+}

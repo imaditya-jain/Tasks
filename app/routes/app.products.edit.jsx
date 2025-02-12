@@ -7,6 +7,9 @@ export const action = async ({ request }) => {
 
     const productId = formData.get("id");
     const title = formData.get("title");
+    const descriptionHtml = formData.get("description");
+    const vendor = formData.get("vendor");
+    const imageSrc = formData.get("image");
     const variantId = formData.get("variantId");
     const price = formData.get("price");
 
@@ -23,6 +26,8 @@ export const action = async ({ request }) => {
                     product {
                         id
                         title
+                        descriptionHtml
+                        vendor
                     }
                     userErrors {
                         field
@@ -35,6 +40,8 @@ export const action = async ({ request }) => {
                     input: {
                         id: productId,
                         title,
+                        descriptionHtml,
+                        vendor,
                     },
                 },
             }
@@ -43,23 +50,24 @@ export const action = async ({ request }) => {
         if (productResponse.data?.productUpdate?.userErrors.length) {
             return json({ errors: productResponse.data.productUpdate.userErrors }, { status: 400 });
         }
+
         const variantResponse = await admin.graphql(
             `#graphql
-    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-            product {
-                id
-            }
-            productVariants {
-                id
-                price
-            }
-            userErrors {
-                field
-                message
-            }
-        }
-    }`,
+            mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    product {
+                        id
+                    }
+                    productVariants {
+                        id
+                        price
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }`,
             {
                 variables: {
                     productId,
@@ -76,7 +84,6 @@ export const action = async ({ request }) => {
         if (variantResponse.data?.productVariantsBulkUpdate?.userErrors.length) {
             return json({ errors: variantResponse.data.productVariantsBulkUpdate.userErrors }, { status: 400 });
         }
-
 
         return json({ success: true });
     } catch (error) {
